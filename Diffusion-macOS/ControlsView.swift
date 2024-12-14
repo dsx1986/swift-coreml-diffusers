@@ -24,7 +24,7 @@ enum PipelineState {
     case failed(Error)
 }
 
-
+#if os(iOS)
 // Define a wrapper for UIDocumentInteractionController for SwiftUI
 struct DocumentInteractionController: UIViewControllerRepresentable {
     var url: URL
@@ -54,7 +54,7 @@ struct DocumentInteractionController: UIViewControllerRepresentable {
         // Add any delegate methods here if needed
     }
 }
-
+#endif
 
 /// Mimics the native appearance, but labels are clickable.
 /// To be removed (adding gestures to all labels) if we observe any UI shenanigans.
