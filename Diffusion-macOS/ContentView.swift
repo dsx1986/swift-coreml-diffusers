@@ -1,16 +1,12 @@
-//
-//  ContentView.swift
-//  Diffusion-macOS
-//
-//  Created by Cyril Zakka on 1/12/23.
-//  See LICENSE at https://github.com/huggingface/swift-coreml-diffusers/LICENSE
-//
-
 import SwiftUI
-import ImageIO
 
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
-// AppKit version that uses NSImage, NSSavePanel
+// Shared logic for both iOS and macOS
 struct ShareButtons: View {
     var image: CGImage
     var name: String
@@ -18,77 +14,88 @@ struct ShareButtons: View {
     var filename: String {
         name.replacingOccurrences(of: " ", with: "_")
     }
-    
-    func showSavePanel() -> URL? {
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.png]
-        savePanel.canCreateDirectories = true
-        savePanel.isExtensionHidden = false
-        savePanel.title = "Save your image"
-        savePanel.message = "Choose a folder and a name to store the image."
-        savePanel.nameFieldLabel = "File name:"
-        savePanel.nameFieldStringValue = filename
 
-        let response = savePanel.runModal()
-        return response == .OK ? savePanel.url : nil
+    // iOS-specific code for saving to Photos
+    #if os(iOS)
+    func saveImageToPhotos() {
+        let uiImage = UIImage(cgImage: image)
+        UIImageWriteToSavedPhotosAlbum(uiImage, nil, nil, nil) // Save to photo library
     }
 
-    func savePNG(cgImage: CGImage, path: URL) {
-        let image = NSImage(cgImage: cgImage, size: .zero)
-        let imageRepresentation = NSBitmapImageRep(data: image.tiffRepresentation!)
-        guard let pngData = imageRepresentation?.representation(using: .png, properties: [:]) else {
-            print("Error generating PNG data")
-            return
-        }
-        do {
-            try pngData.write(to: path)
-        } catch {
-            print("Error saving: \(error)")
+    func showSavePanel() {
+        let uiImage = UIImage(cgImage: image)
+        let activityViewController = UIActivityViewController(activityItems: [uiImage], applicationActivities: nil)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootViewController = windowScene.windows.first?.rootViewController {
+            rootViewController.present(activityViewController, animated: true)
         }
     }
+    #elseif os(macOS)
+    func showSavePanel() {
+        let nsImage = NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width), height: CGFloat(image.height)))
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = filename + ".png"
+        if panel.runModal() == .OK, let url = panel.url {
+            if let data = nsImage.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data) {
+                let pngData = bitmap.representation(using: .png, properties: [:])
+                try? pngData?.write(to: url)
+            }
+        }
+    }
+    #endif
 
     var body: some View {
-        let imageView = Image(image, scale: 1, label: Text(name))
+        #if os(iOS)
+        let uiImage = UIImage(cgImage: image) // Convert CGImage to UIImage
         HStack {
-            ShareLink(item: imageView, preview: SharePreview(name, image: imageView))
-            Button() {
-                if let url = showSavePanel() {
-                    savePNG(cgImage: image, path: url)
-                }
-            } label: {
+//            ShareLink(item: uiImage, preview: SharePreview(name, image: Image(uiImage: uiImage)))
+            Button(action: {
+                showSavePanel() // Using iOS save dialog
+            }) {
                 Label("Save…", systemImage: "square.and.arrow.down")
             }
         }
+        #elseif os(macOS)
+        // On macOS, ShareLink doesn't support NSImage directly
+        let nsImage = NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width), height: CGFloat(image.height)))
+        HStack {
+            Button(action: {
+                showSavePanel() // macOS save dialog
+            }) {
+                Label("Save…", systemImage: "square.and.arrow.down")
+            }
+        }
+        #endif
     }
 }
 
 struct ContentView: View {
     @StateObject var generation = GenerationContext()
 
-    func toolbar() -> any View {
+    func toolbar() -> some View {
         if case .complete(let prompt, let cgImage, _, _) = generation.state, let cgImage = cgImage {
-            // TODO: share seed too
             return ShareButtons(image: cgImage, name: prompt)
         } else {
             let prompt = DEFAULT_PROMPT
+            #if os(iOS)
+            let cgImage = UIImage(systemName: "photo")?.cgImage ?? UIImage().cgImage!
+            #elseif os(macOS)
             let cgImage = NSImage(imageLiteralResourceName: "placeholder").cgImage(forProposedRect: nil, context: nil, hints: nil)!
+            #endif
             return ShareButtons(image: cgImage, name: prompt)
         }
     }
     
     var body: some View {
-        NavigationSplitView {
+        NavigationView {
             ControlsView()
-                .navigationSplitViewColumnWidth(min: 250, ideal: 300)
-        } detail: {
             GeneratedImageView()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 512, height: 512)
                 .cornerRadius(15)
                 .toolbar {
-                    AnyView(toolbar())
+                    toolbar()
                 }
-
         }
         .environmentObject(generation)
     }

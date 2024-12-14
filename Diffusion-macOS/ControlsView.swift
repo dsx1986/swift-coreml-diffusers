@@ -9,6 +9,11 @@
 import Combine
 import SwiftUI
 import CompactSlider
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Track a StableDiffusion Pipeline's readiness. This include actively downloading from the internet, uncompressing the downloaded zip file, actively loading into memory, ready to use or an Error state.
 enum PipelineState {
@@ -18,6 +23,38 @@ enum PipelineState {
     case ready
     case failed(Error)
 }
+
+
+// Define a wrapper for UIDocumentInteractionController for SwiftUI
+struct DocumentInteractionController: UIViewControllerRepresentable {
+    var url: URL
+    
+    func makeUIViewController(context: Context) -> UIViewController {
+        let viewController = UIViewController() // Use a simple UIViewController as a container
+        let documentController = UIDocumentInteractionController(url: url)
+        documentController.delegate = context.coordinator
+        
+        // Present the options menu from this view controller's view
+        DispatchQueue.main.async {
+            documentController.presentOptionsMenu(from: CGRect.zero, in: viewController.view, animated: true)
+        }
+        
+        return viewController
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        // No need to update, we are only presenting the options menu once
+    }
+
+    func makeCoordinator() -> Coordinator {
+        return Coordinator()
+    }
+
+    class Coordinator: NSObject, UIDocumentInteractionControllerDelegate {
+        // Add any delegate methods here if needed
+    }
+}
+
 
 /// Mimics the native appearance, but labels are clickable.
 /// To be removed (adding gestures to all labels) if we observe any UI shenanigans.
@@ -200,7 +237,16 @@ struct ControlsView: View {
                         .onChange(of: model) { selection in
                             guard selection != revealOption else {
                                 // The reveal option has been requested - open the models folder in Finder
-                                NSWorkspace.shared.selectFile(modelFilename, inFileViewerRootedAtPath: PipelineLoader.models.path)
+                                #if os(macOS)
+                                    // macOS-specific code
+                                    NSWorkspace.shared.selectFile(modelFilename, inFileViewerRootedAtPath: PipelineLoader.models.path)
+                                #elseif os(iOS)
+                                    // iOS-specific code using UIDocumentInteractionController
+                                if let modelFilename = modelFilename, let url = URL(string: modelFilename) {
+                                                DocumentInteractionController(url: url)
+                                                    .frame(width: 0, height: 0) // Hidden as we only want to trigger the document interaction menu
+                                            }
+                                #endif
                                 model = Settings.shared.currentModel.modelVersion
                                 return
                             }
@@ -378,7 +424,9 @@ struct ControlsView: View {
                                         .foregroundColor(isNeuralEngineDisabled ? .secondary : .primary)
                                         .tag(ComputeUnits.cpuAndNeuralEngine)
                                     Text("GPU and Neural Engine").tag(ComputeUnits.all)
-                                }.pickerStyle(.radioGroup).padding(.leading)
+                                }
+                                .pickerStyle(SegmentedPickerStyle()) // Use SegmentedPickerStyle for compatibility
+                                .padding(.leading)
                                 Spacer()
                             }
                             .onChange(of: generation.computeUnits) { units in

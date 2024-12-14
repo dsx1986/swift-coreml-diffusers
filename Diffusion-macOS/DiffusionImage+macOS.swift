@@ -1,10 +1,3 @@
-//
-//  DiffusionImage+macOS.swift
-//  Diffusion-macOS
-//
-//  Created by Dolmere and Pedro Cuenca on 30/07/2023.
-//
-
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -13,9 +6,12 @@ extension DiffusionImage {
     /// Instance func to place the generated image on the file system and return the `fileURL` where it is stored.
     func save(cgImage: CGImage, filename: String?) -> URL? {
         
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-            
-            
+        #if os(iOS)
+        let uiImage = UIImage(cgImage: cgImage)  // Use UIImage for iOS
+        #elseif os(macOS)
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))  // Use NSImage for macOS
+        #endif
+        
         let appSupportURL = Settings.shared.tempStorageURL()
         let fn = filename ?? "diffusion_generated_image"
         let fileURL = appSupportURL
@@ -23,9 +19,8 @@ extension DiffusionImage {
             .appendingPathExtension("png")
         
         // Save the image as a temporary file
-        if let tiffData = nsImage.tiffRepresentation,
-           let bitmap = NSBitmapImageRep(data: tiffData),
-           let pngData = bitmap.representation(using: .png, properties: [:]) {
+        #if os(iOS)
+        if let pngData = uiImage.pngData() {
             do {
                 try pngData.write(to: fileURL)
                 return fileURL
@@ -33,80 +28,56 @@ extension DiffusionImage {
                 print("Error saving image to temporary file: \(error)")
             }
         }
+        #elseif os(macOS)
+        if let pngData = pngData(from: nsImage) {
+            do {
+                try pngData.write(to: fileURL)
+                return fileURL
+            } catch {
+                print("Error saving image to temporary file: \(error)")
+            }
+        }
+        #endif
+        
         return nil
     }
 
     /// Returns a `Data` representation of this generated image in PNG format or nil if there is an error converting the image data.
     func pngRepresentation() -> Data? {
-        let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
-        return bitmapRep.representation(using: .png, properties: [:])
+        #if os(iOS)
+        let uiImage = UIImage(cgImage: cgImage)
+        return uiImage.pngData()
+        #elseif os(macOS)
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        return pngData(from: nsImage)
+        #endif
     }
+
+    /// Converts NSImage to PNG data (for macOS)
+     #if os(macOS)
+     private func pngData(from nsImage: NSImage) -> Data? {
+         guard let imageRep = nsImage.representations.first as? NSBitmapImageRep else { return nil }
+         return imageRep.representation(using: .png, properties: [:])
+     }
+     #endif
 }
 
-extension DiffusionImage: NSItemProviderWriting {
-
-    // MARK: - NSItemProviderWriting
-
-    static var writableTypeIdentifiersForItemProvider: [String] {
-        return [UTType.data.identifier, UTType.png.identifier, UTType.fileURL.identifier]
-    }
-    
-    func itemProviderVisibilityForRepresentation(withTypeIdentifier typeIdentifier: String) -> NSItemProviderRepresentationVisibility {
-        return .all
-    }
-    
-    func itemProviderRepresentation(forTypeIdentifier typeIdentifier: String) throws -> NSItemProvider {
-        print("itemProviderRepresentation(forTypeIdentifier")
-        print(typeIdentifier)
-        let data = try NSKeyedArchiver.archivedData(withRootObject: self, requiringSecureCoding: true)
-        let itemProvider = NSItemProvider()
-        itemProvider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: NSItemProviderRepresentationVisibility.all) { completion in
-            completion(data, nil)
-            return nil
-        }
-        return itemProvider
-    }
-    
-    func loadData(withTypeIdentifier typeIdentifier: String, forItemProviderCompletionHandler completionHandler: @escaping @Sendable (Data?, Error?) -> Void) -> Progress? {
-        if typeIdentifier == NSPasteboard.PasteboardType.fileURL.rawValue {
-            let data = fileURL.dataRepresentation
-            completionHandler(data, nil)
-        } else if typeIdentifier == UTType.png.identifier {
-            let data = pngRepresentation()
-            completionHandler(data, nil)
-        } else {
-            // Indicate that the specified typeIdentifier is not supported
-            let error = NSError(domain: "com.huggingface.diffusion", code: 0, userInfo: [NSLocalizedDescriptionKey: "Unsupported typeIdentifier"])
-            completionHandler(nil, error)
-        }
-        return nil
-    }
-    
-}
-
-extension DiffusionImage: NSPasteboardWriting {
-    
-    // MARK: - NSPasteboardWriting
-    
-    func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        return [
-            NSPasteboard.PasteboardType.fileURL,
-            NSPasteboard.PasteboardType(rawValue: UTType.png.identifier)
-        ]
-    }
-    
-    func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        if type == NSPasteboard.PasteboardType.fileURL {
-            
-            // Return the file's data' representation
-            return fileURL.dataRepresentation
-            
-        } else if type.rawValue == UTType.png.identifier {
-            
-            // Return a PNG data representation
-            return pngRepresentation()
+extension DiffusionImage {
+    // Function to save the image to the pasteboard
+    func saveToPasteboard() {
+        guard let pngData = pngRepresentation() else {
+            print("Error: Failed to convert image to PNG data.")
+            return
         }
         
-        return nil
+        #if os(iOS)
+        // Use UIPasteboard to copy the image data to the clipboard
+        UIPasteboard.general.setData(pngData, forPasteboardType: UTType.png.identifier)
+        #elseif os(macOS)
+        // Use NSPasteboard for macOS
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(pngData, forType: .png)
+        #endif
     }
 }

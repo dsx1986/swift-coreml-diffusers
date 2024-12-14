@@ -1,17 +1,16 @@
-//
-//  Utils_macOS.swift
-//  Diffusion-macOS
-//
-//  Created by Dolmere on 31/07/2023.
-//
-
 import SwiftUI
 
 extension CGImage {
     static func fromData(_ imageData: Data) -> CGImage? {
-        if let image = NSBitmapImageRep(data: imageData)?.cgImage {
-            return image
+        #if os(iOS)
+        if let uiImage = UIImage(data: imageData) {
+            return uiImage.cgImage
         }
+        #elseif os(macOS)
+        if let nsImage = NSImage(data: imageData) {
+            return nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+        #endif
         return nil
     }
 }

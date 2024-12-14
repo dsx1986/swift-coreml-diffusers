@@ -1,11 +1,3 @@
-//
-//  GeneratedImageView.swift
-//  Diffusion
-//
-//  Created by Pedro Cuenca on 18/1/23.
-//  See LICENSE at https://github.com/huggingface/swift-coreml-diffusers/LICENSE
-//
-
 import SwiftUI
 
 struct GeneratedImageView: View {
@@ -13,7 +5,8 @@ struct GeneratedImageView: View {
 
     var body: some View {
         switch generation.state {
-        case .startup: return AnyView(Image("placeholder").resizable())
+        case .startup:
+            return AnyView(Image("placeholder").resizable())
         case .running(let progress):
             guard let progress = progress, progress.stepCount > 0 else {
                 // The first time it takes a little bit before generation starts
@@ -29,7 +22,7 @@ struct GeneratedImageView: View {
                     if let safeImage = generation.previewImage {
                         Image(safeImage, scale: 1, label: Text("generated"))
                             .resizable()
-                            .clipShape(RoundedRectangle(cornerRadius: 20))                        
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
                     }
                 }
                 HStack {
@@ -43,24 +36,34 @@ struct GeneratedImageView: View {
                 }
             })
         case .complete(_, let image, _, _):
-            guard let theImage = image else {
+            // Safely unwrapping the optional `CGImage?`
+            if let theImage = image {
+                return AnyView(
+                    Image(theImage, scale: 1, label: Text("generated"))
+                        .resizable()
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .contextMenu {
+                            Button {
+                                #if os(iOS)
+                                // Using iOS compatible pasteboard (UIPasteboard)
+                                UIPasteboard.general.image = UIImage(cgImage: theImage)
+                                #elseif os(macOS)
+                                // Using macOS compatible pasteboard (NSPasteboard)
+                                let pasteboard = NSPasteboard.general
+                                pasteboard.clearContents()
+                                // Convert the CGImage to data before copying to pasteboard
+                                if let imageData = theImage.dataProvider?.data {
+                                    pasteboard.setData(imageData as Data, forType: .tiff)
+                                }
+                                #endif
+                            } label: {
+                                Text("Copy Photo")
+                            }
+                        }
+                )
+            } else {
                 return AnyView(Image(systemName: "exclamationmark.triangle").resizable())
             }
-            
-            return AnyView(
-                    Image(theImage, scale: 1, label: Text("generated"))
-                    .resizable()
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .contextMenu {
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            let nsimage = NSImage(cgImage: theImage, size: NSSize(width: theImage.width, height: theImage.height))
-                            NSPasteboard.general.writeObjects([nsimage])
-                        } label: {
-                            Text("Copy Photo")
-                        }
-                    }
-            )
         case .failed(_):
             return AnyView(Image(systemName: "exclamationmark.triangle").resizable())
         case .userCanceled:
